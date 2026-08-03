@@ -15,6 +15,13 @@
     "maxMentions": 300
   },
   {
+    "name": "Landmodo (Live Land Listings)",
+    "type": "landmodo",
+    "enabled": true,
+    "url": "https://www.landmodo.com/properties",
+    "maxPages": 60
+  },
+  {
     "name": "Sample JSON Listings",
     "type": "json",
     "enabled": false,

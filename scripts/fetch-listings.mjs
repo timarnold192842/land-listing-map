@@ -14,6 +14,60 @@ const REQUEST_HEADERS = {
   "user-agent": "Mozilla/5.0 (compatible; land-listing-map/1.0)"
 };
 
+const US_STATE_SLUG_TO_ABBR = {
+  alabama: "AL",
+  alaska: "AK",
+  arizona: "AZ",
+  arkansas: "AR",
+  california: "CA",
+  colorado: "CO",
+  connecticut: "CT",
+  delaware: "DE",
+  florida: "FL",
+  georgia: "GA",
+  hawaii: "HI",
+  idaho: "ID",
+  illinois: "IL",
+  indiana: "IN",
+  iowa: "IA",
+  kansas: "KS",
+  kentucky: "KY",
+  louisiana: "LA",
+  maine: "ME",
+  maryland: "MD",
+  massachusetts: "MA",
+  michigan: "MI",
+  minnesota: "MN",
+  mississippi: "MS",
+  missouri: "MO",
+  montana: "MT",
+  nebraska: "NE",
+  nevada: "NV",
+  "new-hampshire": "NH",
+  "new-jersey": "NJ",
+  "new-mexico": "NM",
+  "new-york": "NY",
+  "north-carolina": "NC",
+  "north-dakota": "ND",
+  ohio: "OH",
+  oklahoma: "OK",
+  oregon: "OR",
+  pennsylvania: "PA",
+  "rhode-island": "RI",
+  "south-carolina": "SC",
+  "south-dakota": "SD",
+  tennessee: "TN",
+  texas: "TX",
+  utah: "UT",
+  vermont: "VT",
+  virginia: "VA",
+  washington: "WA",
+  "west-virginia": "WV",
+  wisconsin: "WI",
+  wyoming: "WY",
+  "district-of-columbia": "DC"
+};
+
 const rssParser = new Parser();
 
 function toNumber(value) {
@@ -143,6 +197,34 @@ function shouldSkipTitle(title) {
   const value = String(title || "").toLowerCase();
   if (!value) return true;
   return /(please ignore|demo|test|placeholder|sample|sold!|\bsold\b|pending|under contract)/i.test(value);
+}
+
+function decodeHtmlEntities(text) {
+  return String(text || "")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&ndash;/g, "-")
+    .replace(/&mdash;/g, "-")
+    .replace(/&nbsp;/g, " ");
+}
+
+function escapeRegExp(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function extractStateFromSlug(pathSlug) {
+  const lower = String(pathSlug || "").toLowerCase();
+  for (const [nameSlug, abbr] of Object.entries(US_STATE_SLUG_TO_ABBR)) {
+    if (lower.includes(`-${nameSlug}-`) || lower.endsWith(`-${nameSlug}`)) {
+      return abbr;
+    }
+  }
+  const abbrMatch = lower.match(/-([a-z]{2})-\d{5}\b/);
+  if (abbrMatch) {
+    return String(abbrMatch[1]).toUpperCase();
+  }
+  return "";
 }
 
 function statusLooksAvailable(status) {
@@ -396,6 +478,83 @@ async function loadLandElevatedHomeSource(source) {
   }));
 }
 
+function parseLandmodoPage(html, sourceName) {
+  const rows = [];
+  const tagMatches = html.match(/<span class="google-pin-location"[^>]*>/g) || [];
+
+  for (const tag of tagMatches) {
+    const lat = toNumber((tag.match(/data-lat="([^"]+)"/) || [])[1]);
+    const lon = toNumber((tag.match(/data-lng="([^"]+)"/) || [])[1]);
+    const titleRaw = (tag.match(/data-name="([^"]+)"/) || [])[1] || "Untitled land listing";
+    const filenameRaw = (tag.match(/data-filename="([^"]+)"/) || [])[1] || "";
+
+    const title = decodeHtmlEntities(titleRaw).trim();
+    const filename = filenameRaw.replace(/^\/+/, "").trim();
+    if (!filename) continue;
+    if (lat == null || lon == null) continue;
+    if (lat < -90 || lat > 90 || lon < -180 || lon > 180) continue;
+    if (shouldSkipTitle(title)) continue;
+
+    const state = extractStateFromSlug(filename);
+    const detailsAnchorRe = new RegExp(`href=\"/${escapeRegExp(filename)}\"`, "i");
+    const detailsAnchor = html.search(detailsAnchorRe);
+    const detailsChunk = detailsAnchor >= 0 ? html.slice(detailsAnchor, detailsAnchor + 1400) : "";
+    const detailsText = stripHtml(decodeHtmlEntities(detailsChunk));
+
+    const acreage = extractAcreageFromText(title, detailsText);
+    const price = extractPriceFromText(title, detailsText);
+
+    rows.push({
+      id: `${sourceName}:${filename}`,
+      source: sourceName,
+      title,
+      url: `https://www.landmodo.com/${filename}`,
+      description: detailsText,
+      city: "",
+      state,
+      county: "",
+      listedAt: "",
+      price,
+      acreage,
+      lat,
+      lon
+    });
+  }
+
+  return rows;
+}
+
+async function loadLandmodoSource(source) {
+  if (!source.url) {
+    throw new Error(`landmodo source ${source.name} is missing a url.`);
+  }
+
+  const maxPages = Number.parseInt(String(source.maxPages ?? 50), 10);
+  const rows = [];
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    const pageUrl = `${source.url}${source.url.includes("?") ? "&" : "?"}page=${page}`;
+    let response = await fetch(pageUrl, { headers: REQUEST_HEADERS });
+    if (!response.ok) {
+      response = await fetch(pageUrl, { headers: REQUEST_HEADERS });
+    }
+    if (!response.ok) {
+      if (rows.length) {
+        break;
+      }
+      throw new Error(`landmodo request failed on page ${page}: ${response.status} ${response.statusText}`);
+    }
+    const html = await response.text();
+    const pageRows = parseLandmodoPage(html, source.name);
+    if (!pageRows.length) {
+      break;
+    }
+    rows.push(...pageRows);
+  }
+
+  return rows;
+}
+
 async function loadSourceRows(source) {
   const type = String(source.type || "").toLowerCase();
   if (type === "json") return loadJsonSource(source);
@@ -403,6 +562,7 @@ async function loadSourceRows(source) {
   if (type === "rss") return loadRssSource(source);
   if (type === "wp_rei_land") return loadWpReiLandSource(source);
   if (type === "landelevated_home") return loadLandElevatedHomeSource(source);
+  if (type === "landmodo") return loadLandmodoSource(source);
   throw new Error(`Unsupported source type: ${source.type}`);
 }
 
@@ -428,7 +588,7 @@ async function main() {
     try {
       const type = String(source.type || "").toLowerCase();
       const rows = await loadSourceRows(source);
-      if (type === "wp_rei_land" || type === "landelevated_home") {
+      if (type === "wp_rei_land" || type === "landelevated_home" || type === "landmodo") {
         rawListings.push(...rows);
       } else {
         rows.forEach((row, index) => {
