@@ -1,0 +1,66 @@
+[
+  {
+    "name": "Land Sales List (Catalog)",
+    "type": "rss",
+    "enabled": false,
+    "url": "https://landsaleslist.com/feed",
+    "mappings": {
+      "id": "guid",
+      "title": "title",
+      "url": "link",
+      "description": "contentSnippet"
+    },
+    "defaults": {
+      "state": ""
+    }
+  },
+  {
+    "name": "Sample JSON Listings",
+    "type": "json",
+    "path": "data/sample-listings.json",
+    "mappings": {
+      "id": "id",
+      "title": "title",
+      "price": "price",
+      "acreage": "acreage",
+      "lat": "lat",
+      "lon": "lon",
+      "url": "url",
+      "description": "description",
+      "city": "city",
+      "state": "state"
+    }
+  },
+  {
+    "name": "Sample CSV Listings",
+    "type": "csv",
+    "path": "data/sample-listings.csv",
+    "mappings": {
+      "id": "listing_id",
+      "title": "headline",
+      "price": "list_price",
+      "acreage": "acres",
+      "lat": "latitude",
+      "lon": "longitude",
+      "url": "listing_url",
+      "description": "notes",
+      "city": "city",
+      "state": "state"
+    }
+  },
+  {
+    "name": "Example RSS Feed",
+    "type": "rss",
+    "enabled": false,
+    "url": "https://example.com/land-listings.rss",
+    "mappings": {
+      "id": "guid",
+      "title": "title",
+      "url": "link",
+      "description": "contentSnippet"
+    },
+    "defaults": {
+      "state": "PA"
+    }
+  }
+]

@@ -1,0 +1,118 @@
+{
+  "generatedAt": "2026-08-03T22:07:17.452Z",
+  "count": 6,
+  "listings": [
+    {
+      "id": "json-001",
+      "source": "Sample JSON Listings",
+      "title": "14.8 Acres Near Butler Township",
+      "url": "https://example.com/listings/json-001",
+      "description": "Wooded parcel with road frontage and creek.",
+      "city": "Butler",
+      "state": "PA",
+      "county": "",
+      "listedAt": "",
+      "price": 189000,
+      "acreage": 14.8,
+      "lat": 40.9092,
+      "lon": -79.9374
+    },
+    {
+      "id": "json-002",
+      "source": "Sample JSON Listings",
+      "title": "6 Acre Buildable Lot",
+      "url": "https://example.com/listings/json-002",
+      "description": "Open field with gentle slope and utilities nearby.",
+      "city": "Sewickley",
+      "state": "PA",
+      "county": "",
+      "listedAt": "",
+      "price": 97500,
+      "acreage": 6,
+      "lat": 40.6245,
+      "lon": -80.1212
+    },
+    {
+      "id": "json-003",
+      "source": "Sample JSON Listings",
+      "title": "31 Acre Hunting Retreat",
+      "url": "https://example.com/listings/json-003",
+      "description": "Mixed timber tract with internal trails.",
+      "city": "Kittanning",
+      "state": "PA",
+      "county": "",
+      "listedAt": "",
+      "price": 329000,
+      "acreage": 31,
+      "lat": 41.0198,
+      "lon": -79.3112
+    },
+    {
+      "id": "csv-101",
+      "source": "Sample CSV Listings",
+      "title": "9.5 Acres with Pond",
+      "url": "https://example.com/listings/csv-101",
+      "description": "Partially cleared with spring-fed pond.",
+      "city": "Tarentum",
+      "state": "PA",
+      "county": "",
+      "listedAt": "",
+      "price": 142000,
+      "acreage": 9.5,
+      "lat": 40.5478,
+      "lon": -79.8011
+    },
+    {
+      "id": "csv-102",
+      "source": "Sample CSV Listings",
+      "title": "22 Acre Rural Parcel",
+      "url": "https://example.com/listings/csv-102",
+      "description": "Rolling terrain with mountain views.",
+      "city": "Westmoreland",
+      "state": "PA",
+      "county": "",
+      "listedAt": "",
+      "price": 248900,
+      "acreage": 22,
+      "lat": 40.3827,
+      "lon": -79.7335
+    },
+    {
+      "id": "csv-103",
+      "source": "Sample CSV Listings",
+      "title": "4.2 Acre Infill Land",
+      "url": "https://example.com/listings/csv-103",
+      "description": "Smaller parcel near city edge.",
+      "city": "Pittsburgh",
+      "state": "PA",
+      "county": "",
+      "listedAt": "",
+      "price": 78000,
+      "acreage": 4.2,
+      "lat": 40.4406,
+      "lon": -79.9959
+    }
+  ],
+  "sourceStats": [
+    {
+      "source": "Land Sales List (Catalog)",
+      "status": "skipped",
+      "reason": "disabled"
+    },
+    {
+      "source": "Sample JSON Listings",
+      "status": "ok",
+      "loaded": 3
+    },
+    {
+      "source": "Sample CSV Listings",
+      "status": "ok",
+      "loaded": 3
+    },
+    {
+      "source": "Example RSS Feed",
+      "status": "skipped",
+      "reason": "disabled"
+    }
+  ]
+}

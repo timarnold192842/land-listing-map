@@ -1,0 +1,38 @@
+[
+  {
+    "id": "json-001",
+    "title": "14.8 Acres Near Butler Township",
+    "price": "$189,000",
+    "acreage": 14.8,
+    "lat": 40.9092,
+    "lon": -79.9374,
+    "url": "https://example.com/listings/json-001",
+    "description": "Wooded parcel with road frontage and creek.",
+    "city": "Butler",
+    "state": "PA"
+  },
+  {
+    "id": "json-002",
+    "title": "6 Acre Buildable Lot",
+    "price": "$97,500",
+    "acreage": 6.0,
+    "lat": 40.6245,
+    "lon": -80.1212,
+    "url": "https://example.com/listings/json-002",
+    "description": "Open field with gentle slope and utilities nearby.",
+    "city": "Sewickley",
+    "state": "PA"
+  },
+  {
+    "id": "json-003",
+    "title": "31 Acre Hunting Retreat",
+    "price": "$329,000",
+    "acreage": 31,
+    "lat": 41.0198,
+    "lon": -79.3112,
+    "url": "https://example.com/listings/json-003",
+    "description": "Mixed timber tract with internal trails.",
+    "city": "Kittanning",
+    "state": "PA"
+  }
+]

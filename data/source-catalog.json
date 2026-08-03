@@ -1,0 +1,73 @@
+{
+  "updatedAt": "2026-08-03",
+  "source": "https://landsaleslist.com",
+  "categories": [
+    {
+      "name": "Land buying websites",
+      "sites": [
+        "https://www.landboss.net/properties",
+        "https://ruralvacantland.com/",
+        "https://www.land.com/",
+        "https://www.landwatch.com/",
+        "https://landcentral.com/",
+        "https://landspot.com/",
+        "https://landelevated.com/",
+        "https://www.landflip.com/",
+        "https://www.landsearch.com/",
+        "https://www.landhub.com/",
+        "https://www.landandfarm.com/",
+        "https://land-listings.com/",
+        "https://cheaplands.com/",
+        "https://landsale4u.com/",
+        "https://www.landleader.com/",
+        "https://www.landcentury.com/"
+      ]
+    },
+    {
+      "name": "Other websites to buy land",
+      "sites": [
+        "https://www.crexi.com/",
+        "https://www.cimls.com/",
+        "https://www.homesforheroes.com/",
+        "https://www.whitetailproperties.com/",
+        "https://thelotstore.com/",
+        "https://brevitas.com/",
+        "https://www.coloproperty.com/",
+        "https://www.loopnet.com/",
+        "https://www.sportsafieldtrophyproperties.com/",
+        "https://www.governmentauction.com/default.aspx"
+      ]
+    },
+    {
+      "name": "Mainstream",
+      "sites": [
+        "Google",
+        "Zillow",
+        "Redfin",
+        "Trulia",
+        "https://www.realtor.com/",
+        "https://www.apartments.com/",
+        "https://www.foreclosure.com",
+        "Real Estate Agents / MLS"
+      ]
+    },
+    {
+      "name": "Community marketplaces",
+      "sites": [
+        "Facebook Marketplace",
+        "Craigslist",
+        "eBay"
+      ]
+    },
+    {
+      "name": "Other notable places",
+      "sites": [
+        "https://fsbo.com/",
+        "https://www.homesteps.com/",
+        "https://homepath.fanniemae.com/",
+        "https://www.reddit.com/r/land/",
+        "https://www.usa.gov/real-estate-sales"
+      ]
+    }
+  ]
+}

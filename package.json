@@ -1,0 +1,24 @@
+{
+  "name": "land-listing-map",
+  "version": "1.0.0",
+  "description": "Land listing map with multi-source ingestion and acreage overlays",
+  "main": "scripts/fetch-listings.mjs",
+  "scripts": {
+    "fetch": "node scripts/fetch-listings.mjs",
+    "serve": "npx http-server . -p 5173 -c-1",
+    "start": "npm run fetch && npm run serve"
+  },
+  "keywords": [
+    "real-estate",
+    "land",
+    "leaflet",
+    "map"
+  ],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "csv-parse": "^7.0.2",
+    "rss-parser": "^3.13.0"
+  }
+}

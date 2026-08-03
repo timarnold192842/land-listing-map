@@ -1,0 +1,4 @@
+listing_id,headline,list_price,acres,latitude,longitude,listing_url,notes,city,state
+csv-101,"9.5 Acres with Pond","$142,000",9.5,40.5478,-79.8011,https://example.com/listings/csv-101,"Partially cleared with spring-fed pond.",Tarentum,PA
+csv-102,"22 Acre Rural Parcel","$248,900",22,40.3827,-79.7335,https://example.com/listings/csv-102,"Rolling terrain with mountain views.",Westmoreland,PA
+csv-103,"4.2 Acre Infill Land","$78,000",4.2,40.4406,-79.9959,https://example.com/listings/csv-103,"Smaller parcel near city edge.",Pittsburgh,PA
