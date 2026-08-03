@@ -129,6 +129,29 @@ function extractCityState(title, text) {
   };
 }
 
+function parseCoordString(value) {
+  const match = String(value || "").match(/(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)/);
+  if (!match) return { lat: null, lon: null };
+  const lat = toNumber(match[1]);
+  const lon = toNumber(match[2]);
+  if (lat == null || lon == null) return { lat: null, lon: null };
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return { lat: null, lon: null };
+  return { lat, lon };
+}
+
+function shouldSkipTitle(title) {
+  const value = String(title || "").toLowerCase();
+  if (!value) return true;
+  return /(please ignore|demo|test|placeholder|sample|sold!|\bsold\b|pending|under contract)/i.test(value);
+}
+
+function statusLooksAvailable(status) {
+  const value = String(status || "").toLowerCase();
+  if (!value) return true;
+  if (/(sold|pending|under contract|inactive|off market)/i.test(value)) return false;
+  return /(active|available|for sale)/i.test(value) || value.length > 0;
+}
+
 function getByPath(obj, dotPath) {
   if (!dotPath) return undefined;
   if (!dotPath.includes(".")) return obj[dotPath];
@@ -266,12 +289,120 @@ async function loadWpReiLandSource(source) {
   });
 }
 
+function coerceLandElevatedRow(raw) {
+  if (!raw || typeof raw !== "object") return null;
+
+  const title = stripHtml(raw["Property Name"] || raw.property_name || raw.Title || "").trim();
+  if (shouldSkipTitle(title)) return null;
+
+  const status = String(raw.Status || raw.status || "").trim();
+  if (!statusLooksAvailable(status)) return null;
+
+  const coordString = raw["GPS Coordinates"] || raw.gps_coordinates || "";
+  const coords = parseCoordString(coordString);
+  if (coords.lat == null || coords.lon == null) return null;
+
+  const city = String(raw.City || raw.city || "").trim();
+  const state = String(raw["State Abbreviation"] || raw.State || raw.state || "").trim();
+  const county = String(raw.County || raw.county || "").trim();
+  const acreage = parseAcreage(raw.Acreage || raw.acreage || "");
+  const price = parsePrice(raw["Cash Purchase Price"] || raw.Price || raw.price || "");
+  const listedAt = String(raw["Created Date"] || raw["Date"] || "").trim();
+
+  const urlCandidate = [
+    raw.URL,
+    raw.url,
+    raw["Property URL"],
+    raw["Listing URL"],
+    raw.Permalink,
+    raw.Link,
+    raw.link
+  ].find((value) => typeof value === "string" && /^https?:\/\//i.test(value.trim()));
+
+  return {
+    id: String(raw.ID || raw.id || `${title}:${coords.lat},${coords.lon}`),
+    source: "LandElevated (Live Land Listings)",
+    title,
+    url: urlCandidate ? String(urlCandidate).trim() : "",
+    description: stripHtml(raw.Description || raw["Property Details"] || "").trim(),
+    city,
+    state,
+    county,
+    listedAt,
+    price,
+    acreage,
+    lat: coords.lat,
+    lon: coords.lon
+  };
+}
+
+async function loadLandElevatedHomeSource(source) {
+  if (!source.url) {
+    throw new Error(`landelevated_home source ${source.name} is missing a url.`);
+  }
+
+  const response = await fetch(source.url, { headers: REQUEST_HEADERS });
+  if (!response.ok) {
+    throw new Error(`landelevated_home request failed: ${response.status} ${response.statusText}`);
+  }
+
+  const html = await response.text();
+  const maxMentions = Number.parseInt(String(source.maxMentions ?? 300), 10);
+  const parsedRows = [];
+
+  let cursor = 0;
+  let mentionCount = 0;
+  while (mentionCount < maxMentions) {
+    const needle = html.indexOf("GPS Coordinates", cursor);
+    if (needle === -1) break;
+    mentionCount += 1;
+
+    const candidateRaw = html.slice(Math.max(0, needle - 2800), Math.min(html.length, needle + 5200));
+    const candidate = candidateRaw
+      .replace(/\\/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    const raw = {
+      "Property Name": (candidate.match(/"Property Name":"([^"]+)"/) || [])[1] || "",
+      Status: (candidate.match(/"Status":"([^"]+)"/) || [])[1] || "",
+      County: (candidate.match(/"County":"([^"]+)"/) || [])[1] || "",
+      State: (candidate.match(/"State":"([^"]+)"/) || [])[1] || "",
+      "State Abbreviation": (candidate.match(/"State Abbreviation":"([^"]+)"/) || [])[1] || "",
+      Acreage: (candidate.match(/"Acreage":"([^"]+)"/) || [])[1] || "",
+      "Cash Purchase Price": (candidate.match(/"Cash Purchase Price":"([^"]+)"/) || [])[1] || "",
+      "GPS Coordinates": (candidate.match(/"GPS Coordinates":"([^"]+)"/) || [])[1] || "",
+      Description: (candidate.match(/"Description":"([^"]*)"/) || [])[1] || ""
+    };
+
+    const listing = coerceLandElevatedRow(raw);
+    if (listing) parsedRows.push(listing);
+
+    cursor = needle + 1;
+  }
+
+  const uniqueByGeoAndTitle = new Map();
+  for (const row of parsedRows) {
+    const key = `${row.title.toLowerCase()}|${row.lat.toFixed(6)}|${row.lon.toFixed(6)}`;
+    if (!uniqueByGeoAndTitle.has(key)) {
+      uniqueByGeoAndTitle.set(key, row);
+    }
+  }
+
+  return [...uniqueByGeoAndTitle.values()].map((row, index) => ({
+    ...row,
+    id: String(row.id || `${source.name}-${index}`),
+    source: source.name
+  }));
+}
+
 async function loadSourceRows(source) {
   const type = String(source.type || "").toLowerCase();
   if (type === "json") return loadJsonSource(source);
   if (type === "csv") return loadCsvSource(source);
   if (type === "rss") return loadRssSource(source);
   if (type === "wp_rei_land") return loadWpReiLandSource(source);
+  if (type === "landelevated_home") return loadLandElevatedHomeSource(source);
   throw new Error(`Unsupported source type: ${source.type}`);
 }
 
@@ -297,7 +428,7 @@ async function main() {
     try {
       const type = String(source.type || "").toLowerCase();
       const rows = await loadSourceRows(source);
-      if (type === "wp_rei_land") {
+      if (type === "wp_rei_land" || type === "landelevated_home") {
         rawListings.push(...rows);
       } else {
         rows.forEach((row, index) => {

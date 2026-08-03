@@ -4,6 +4,7 @@ const state = {
   listings: [],
   filtered: [],
   shapes: [],
+  markers: [],
   shapeMode: "circle"
 };
 
@@ -19,6 +20,7 @@ L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
 }).addTo(map);
 
 const layerGroup = L.layerGroup().addTo(map);
+const markerLayer = L.layerGroup().addTo(map);
 
 const el = {
   sourceFilter: document.getElementById("sourceFilter"),
@@ -89,16 +91,47 @@ function listingPopupHtml(listing) {
   `;
 }
 
+function markerRadiusForZoom(zoom) {
+  const scaled = 4 + (zoom - 4) * 0.8;
+  return Math.max(4, Math.min(14, scaled));
+}
+
+function markerForListing(listing) {
+  return L.circleMarker([listing.lat, listing.lon], {
+    radius: markerRadiusForZoom(map.getZoom()),
+    color: "#083344",
+    weight: 2,
+    fillColor: "#f59e0b",
+    fillOpacity: 0.95,
+    opacity: 1
+  });
+}
+
+function updateMarkerSizes() {
+  const radius = markerRadiusForZoom(map.getZoom());
+  state.markers.forEach((entry) => {
+    entry.marker.setRadius(radius);
+  });
+}
+
 function drawListings() {
   layerGroup.clearLayers();
+  markerLayer.clearLayers();
   state.shapes = [];
+  state.markers = [];
 
   state.filtered.forEach((listing) => {
     const shape = shapeForListing(listing, state.shapeMode);
+    const marker = markerForListing(listing);
     shape.bindPopup(listingPopupHtml(listing));
+    marker.bindPopup(listingPopupHtml(listing));
     shape.addTo(layerGroup);
-    state.shapes.push({ listing, shape });
+    marker.addTo(markerLayer);
+    state.shapes.push({ listing, shape, marker });
+    state.markers.push({ listing, marker });
   });
+
+  updateMarkerSizes();
 }
 
 function listingMatchesFilters(listing) {
@@ -140,7 +173,13 @@ function renderList() {
     item.addEventListener("click", () => {
       map.setView([listing.lat, listing.lon], 13);
       const found = state.shapes.find((entry) => entry.listing.id === listing.id && entry.listing.source === listing.source);
-      if (found) found.shape.openPopup();
+      if (found) {
+        if (found.marker) {
+          found.marker.openPopup();
+        } else {
+          found.shape.openPopup();
+        }
+      }
     });
     el.listingList.appendChild(item);
   });
@@ -194,6 +233,7 @@ function wireEvents() {
   });
 
   el.fitBtn.addEventListener("click", fitMapToResults);
+  map.on("zoomend", updateMarkerSizes);
 }
 
 wireEvents();

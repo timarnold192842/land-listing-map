@@ -8,6 +8,13 @@
     "maxPages": 5
   },
   {
+    "name": "LandElevated (Live Land Listings)",
+    "type": "landelevated_home",
+    "enabled": true,
+    "url": "https://landelevated.com",
+    "maxMentions": 300
+  },
+  {
     "name": "Sample JSON Listings",
     "type": "json",
     "enabled": false,
