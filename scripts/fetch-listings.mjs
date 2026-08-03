@@ -10,6 +10,9 @@ const rootDir = path.resolve(__dirname, "..");
 const dataDir = path.join(rootDir, "data");
 const sourcesPath = path.join(dataDir, "sources.json");
 const outputPath = path.join(dataDir, "listings.json");
+const REQUEST_HEADERS = {
+  "user-agent": "Mozilla/5.0 (compatible; land-listing-map/1.0)"
+};
 
 const rssParser = new Parser();
 
@@ -34,6 +37,96 @@ function parseAcreage(value) {
   const parsed = toNumber(value);
   if (parsed == null || parsed <= 0) return null;
   return parsed;
+}
+
+function stripHtml(html) {
+  if (!html) return "";
+  const text = String(html)
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#8211;/g, "-")
+    .replace(/&#8212;/g, "-")
+    .replace(/&#8217;/g, "'")
+    .replace(/&#8230;/g, "...")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text;
+}
+
+function extractCoordinatePair(text) {
+  if (!text) return { lat: null, lon: null };
+  const matches = text.match(/(-?\d{1,2}\.\d{3,})\s*,\s*(-?\d{1,3}\.\d{3,})/g);
+  if (!matches || !matches.length) return { lat: null, lon: null };
+
+  for (const pair of matches) {
+    const [latRaw, lonRaw] = pair.split(",").map((part) => part.trim());
+    const lat = toNumber(latRaw);
+    const lon = toNumber(lonRaw);
+    if (lat == null || lon == null) continue;
+    if (lat < -90 || lat > 90 || lon < -180 || lon > 180) continue;
+    return { lat, lon };
+  }
+
+  return { lat: null, lon: null };
+}
+
+function extractAcreageFromText(title, text) {
+  const joined = `${title || ""} ${text || ""}`;
+  const match = joined.match(/(\d+(?:\.\d+)?)\s*(?:acre|acres|ac)\b/i);
+  if (!match) return null;
+  return parseAcreage(match[1]);
+}
+
+function extractPriceFromText(title, text) {
+  const joined = `${title || ""} ${text || ""}`;
+  if (!joined.trim()) return null;
+
+  const patterns = [
+    /(?:cash purchase price|sale\s*-\s*cash purchase price|sale price|list price|asking price|purchase price)\s*[:\-]?\s*\$\s*([\d,]+(?:\.\d{1,2})?)/i,
+    /for\s+just\s*\$\s*([\d,]+(?:\.\d{1,2})?)/i,
+    /\$\s*([\d,]+(?:\.\d{1,2})?)\s*(?:cash|usd)?\s*(?:price|asking)/i
+  ];
+
+  for (const pattern of patterns) {
+    const match = joined.match(pattern);
+    if (!match) continue;
+    const price = parsePrice(match[1]);
+    if (price != null) return price;
+  }
+
+  return null;
+}
+
+function extractCityState(title, text) {
+  const joined = `${title || ""} ${text || ""}`;
+  const inCityPattern = /\bin\s+([A-Z][a-zA-Z.'\-\s]{1,40}),\s*([A-Z]{2})\b/;
+  const fallbackPattern = /\b([A-Z][a-zA-Z.'\-\s]{1,40}),\s*([A-Z]{2})\b/;
+  const match = joined.match(inCityPattern) || joined.match(fallbackPattern);
+
+  if (!match) {
+    return { city: "", state: "" };
+  }
+
+  const cityCandidate = String(match[1]).trim();
+  const state = String(match[2]).trim();
+
+  if (/\bcounty\b/i.test(cityCandidate)) {
+    return { city: "", state };
+  }
+
+  const city = cityCandidate
+    .replace(/\b(acre|acres|lot|lots|land|property|in)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return {
+    city,
+    state
+  };
 }
 
 function getByPath(obj, dotPath) {
@@ -119,11 +212,66 @@ async function loadRssSource(source) {
   return feed.items || [];
 }
 
+async function loadWpReiLandSource(source) {
+  if (!source.url) {
+    throw new Error(`wp_rei_land source ${source.name} is missing a url.`);
+  }
+
+  const perPage = Number.parseInt(String(source.perPage ?? 50), 10);
+  const maxPages = Number.parseInt(String(source.maxPages ?? 5), 10);
+  const rows = [];
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    const url = `${source.url}${source.url.includes("?") ? "&" : "?"}per_page=${perPage}&page=${page}`;
+    const response = await fetch(url, { headers: REQUEST_HEADERS });
+    if (!response.ok) {
+      throw new Error(`wp_rei_land request failed: ${response.status} ${response.statusText}`);
+    }
+
+    const pageRows = await response.json();
+    if (!Array.isArray(pageRows) || !pageRows.length) {
+      break;
+    }
+
+    rows.push(...pageRows);
+    const totalPages = Number.parseInt(response.headers.get("x-wp-totalpages") || "1", 10);
+    if (page >= totalPages) break;
+  }
+
+  return rows.map((row) => {
+    const title = stripHtml(row?.title?.rendered || "Untitled land listing");
+    const description = stripHtml(row?.excerpt?.rendered || row?.content?.rendered || "");
+    const bodyText = stripHtml(row?.content?.rendered || "");
+    const mergedText = `${description} ${bodyText}`;
+    const coords = extractCoordinatePair(mergedText);
+    const cityState = extractCityState(title, mergedText);
+    const acreage = extractAcreageFromText(title, mergedText);
+    const price = extractPriceFromText(title, mergedText);
+
+    return {
+      id: String(row?.id ?? row?.slug ?? "unknown"),
+      source: source.name,
+      title,
+      url: String(row?.link || ""),
+      description,
+      city: cityState.city,
+      state: cityState.state,
+      county: "",
+      listedAt: String(row?.date || ""),
+      price,
+      acreage,
+      lat: coords.lat,
+      lon: coords.lon
+    };
+  });
+}
+
 async function loadSourceRows(source) {
   const type = String(source.type || "").toLowerCase();
   if (type === "json") return loadJsonSource(source);
   if (type === "csv") return loadCsvSource(source);
   if (type === "rss") return loadRssSource(source);
+  if (type === "wp_rei_land") return loadWpReiLandSource(source);
   throw new Error(`Unsupported source type: ${source.type}`);
 }
 
@@ -147,10 +295,15 @@ async function main() {
     }
 
     try {
+      const type = String(source.type || "").toLowerCase();
       const rows = await loadSourceRows(source);
-      rows.forEach((row, index) => {
-        rawListings.push(mapRecord(row, source, index));
-      });
+      if (type === "wp_rei_land") {
+        rawListings.push(...rows);
+      } else {
+        rows.forEach((row, index) => {
+          rawListings.push(mapRecord(row, source, index));
+        });
+      }
       stats.push({ source: source.name, status: "ok", loaded: rows.length });
     } catch (error) {
       stats.push({ source: source.name, status: "error", message: error.message });

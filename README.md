@@ -6,6 +6,10 @@ A lightweight land real estate listing map tool that:
 - normalizes them into one file,
 - renders acreage-scaled circles or squares for each listing on an interactive map.
 
+Current default live source:
+
+- LandSale4U WordPress land listing endpoint (`wp/v2/rei_land`)
+
 ## Quick start
 
 ```bash
@@ -59,6 +63,7 @@ Supported source `type` values:
 - `json`: Reads from a local JSON array file.
 - `csv`: Reads from a local CSV file with headers.
 - `rss`: Pulls feed items from a remote RSS URL.
+- `wp_rei_land`: Pulls live land listings from a WordPress custom post endpoint such as `wp/v2/rei_land`.
 
 ## Notes for real websites
 

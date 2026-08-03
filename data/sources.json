@@ -1,22 +1,16 @@
 [
   {
-    "name": "Land Sales List (Catalog)",
-    "type": "rss",
-    "enabled": false,
-    "url": "https://landsaleslist.com/feed",
-    "mappings": {
-      "id": "guid",
-      "title": "title",
-      "url": "link",
-      "description": "contentSnippet"
-    },
-    "defaults": {
-      "state": ""
-    }
+    "name": "LandSale4U (Live Land Listings)",
+    "type": "wp_rei_land",
+    "enabled": true,
+    "url": "https://landsale4u.com/wp-json/wp/v2/rei_land",
+    "perPage": 50,
+    "maxPages": 5
   },
   {
     "name": "Sample JSON Listings",
     "type": "json",
+    "enabled": false,
     "path": "data/sample-listings.json",
     "mappings": {
       "id": "id",
@@ -34,6 +28,7 @@
   {
     "name": "Sample CSV Listings",
     "type": "csv",
+    "enabled": false,
     "path": "data/sample-listings.csv",
     "mappings": {
       "id": "listing_id",
