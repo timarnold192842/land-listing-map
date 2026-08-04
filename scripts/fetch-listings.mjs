@@ -68,6 +68,10 @@ const US_STATE_SLUG_TO_ABBR = {
   "district-of-columbia": "DC"
 };
 
+const US_STATE_NAME_TO_ABBR = Object.fromEntries(
+  Object.entries(US_STATE_SLUG_TO_ABBR).map(([slug, abbr]) => [slug.replace(/-/g, " ").toUpperCase(), abbr])
+);
+
 const rssParser = new Parser();
 
 function toNumber(value) {
@@ -225,6 +229,21 @@ function extractStateFromSlug(pathSlug) {
     return String(abbrMatch[1]).toUpperCase();
   }
   return "";
+}
+
+function normalizeState(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+
+  const upper = raw.toUpperCase();
+  if (/^[A-Z]{2}$/.test(upper)) return upper;
+
+  const compact = upper.replace(/[.]/g, "").replace(/\s+/g, " ").trim();
+  if (US_STATE_NAME_TO_ABBR[compact]) {
+    return US_STATE_NAME_TO_ABBR[compact];
+  }
+
+  return raw;
 }
 
 function statusLooksAvailable(status) {
@@ -555,6 +574,109 @@ async function loadLandmodoSource(source) {
   return rows;
 }
 
+function toUsdFromCents(value) {
+  const amount = toNumber(value);
+  if (amount == null) return null;
+  return parsePrice(amount / 100);
+}
+
+function parseLandCenturyPayload(html) {
+  const match = html.match(/<script id="__NEXT_DATA__" type="application\/json"[^>]*>([\s\S]*?)<\/script>/);
+  if (!match) return { rows: [], total: 0, page: 1 };
+
+  let payload;
+  try {
+    payload = JSON.parse(match[1]);
+  } catch {
+    return { rows: [], total: 0, page: 1 };
+  }
+
+  const data = payload?.props?.pageProps?.data;
+  const rows = Array.isArray(data?.properties) ? data.properties : [];
+  const total = Number.parseInt(String(data?.total ?? rows.length), 10) || rows.length;
+  const page = Number.parseInt(String(data?.page ?? 1), 10) || 1;
+  return { rows, total, page };
+}
+
+function normalizeLandCenturyRow(row, sourceName) {
+  if (!row || typeof row !== "object") return null;
+  if (row.isSold) return null;
+  if (row.isPublished === false) return null;
+
+  const lat = toNumber(row.lat);
+  const lon = toNumber(row.lng);
+  if (lat == null || lon == null) return null;
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+
+  const title = String(row.name || "Untitled land listing").trim();
+  if (shouldSkipTitle(title)) return null;
+
+  const acreage = parseAcreage(row?.info?.sizeAcres ?? row?.sizeAcres ?? "") || extractAcreageFromText(title, "");
+  const price = toUsdFromCents(row.cashPrice) ?? toUsdFromCents(row.ownerFinancePrice);
+  const slug = String(row.slug || "").trim();
+
+  const descriptionParts = [
+    row?.info?.zoning,
+    row?.info?.roadAccess,
+    row?.info?.utilities,
+    row?.info?.legalDescription
+  ]
+    .filter(Boolean)
+    .map((part) => stripHtml(part));
+
+  return {
+    id: `${sourceName}:${row.id ?? slug}`,
+    source: sourceName,
+    title,
+    url: slug ? `https://www.landcentury.com/land-for-sale/${slug}` : "https://www.landcentury.com/land-for-sale",
+    description: descriptionParts.join(" | "),
+    city: String(row.city || "").trim(),
+    state: String(row.stateRegion || "").trim(),
+    county: String(row.county || "").trim(),
+    listedAt: String(row.updated_at || row.created_at || "").trim(),
+    price,
+    acreage,
+    lat,
+    lon
+  };
+}
+
+async function loadLandCenturySource(source) {
+  if (!source.url) {
+    throw new Error(`landcentury source ${source.name} is missing a url.`);
+  }
+
+  const maxPages = Number.parseInt(String(source.maxPages ?? 170), 10);
+  const rows = [];
+  let totalHint = null;
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    const pageUrl = `${source.url}${source.url.includes("?") ? "&" : "?"}page=${page}`;
+    const response = await fetch(pageUrl, { headers: REQUEST_HEADERS });
+    if (!response.ok) {
+      if (rows.length) break;
+      throw new Error(`landcentury request failed on page ${page}: ${response.status} ${response.statusText}`);
+    }
+
+    const html = await response.text();
+    const parsed = parseLandCenturyPayload(html);
+    if (totalHint == null) totalHint = parsed.total;
+
+    const pageRows = parsed.rows
+      .map((row) => normalizeLandCenturyRow(row, source.name))
+      .filter(Boolean);
+
+    if (!pageRows.length) break;
+    rows.push(...pageRows);
+
+    if (totalHint != null && rows.length >= totalHint) {
+      break;
+    }
+  }
+
+  return rows;
+}
+
 async function loadSourceRows(source) {
   const type = String(source.type || "").toLowerCase();
   if (type === "json") return loadJsonSource(source);
@@ -563,6 +685,7 @@ async function loadSourceRows(source) {
   if (type === "wp_rei_land") return loadWpReiLandSource(source);
   if (type === "landelevated_home") return loadLandElevatedHomeSource(source);
   if (type === "landmodo") return loadLandmodoSource(source);
+  if (type === "landcentury") return loadLandCenturySource(source);
   throw new Error(`Unsupported source type: ${source.type}`);
 }
 
@@ -588,7 +711,7 @@ async function main() {
     try {
       const type = String(source.type || "").toLowerCase();
       const rows = await loadSourceRows(source);
-      if (type === "wp_rei_land" || type === "landelevated_home" || type === "landmodo") {
+      if (type === "wp_rei_land" || type === "landelevated_home" || type === "landmodo" || type === "landcentury") {
         rawListings.push(...rows);
       } else {
         rows.forEach((row, index) => {
@@ -605,6 +728,7 @@ async function main() {
     .filter((listing) => isValidListing(listing))
     .map((listing) => ({
       ...listing,
+      state: normalizeState(listing.state),
       acreage: listing.acreage ?? 1
     }));
 

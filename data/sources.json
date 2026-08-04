@@ -22,6 +22,13 @@
     "maxPages": 60
   },
   {
+    "name": "LandCentury (Live Land Listings)",
+    "type": "landcentury",
+    "enabled": true,
+    "url": "https://www.landcentury.com/land-for-sale",
+    "maxPages": 170
+  },
+  {
     "name": "Sample JSON Listings",
     "type": "json",
     "enabled": false,
