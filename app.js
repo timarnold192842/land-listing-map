@@ -159,6 +159,23 @@ function listingMatchesFilters(listing) {
   return haystack.includes(query);
 }
 
+function ruralScore(listing) {
+  const acreage = Number.isFinite(listing.acreage) ? listing.acreage : 0;
+  const text = [listing.title, listing.description, listing.county, listing.city]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  let score = 0;
+  score += Math.min(60, acreage * 2.5);
+  if (acreage >= 1) score += 8;
+  if (acreage >= 5) score += 8;
+  if (/(rural|unrestricted|off-grid|hunting|recreational|vacant|county)/i.test(text)) score += 10;
+  if (/\b(city|downtown|subdivision|commercial lot)\b/i.test(text)) score -= 8;
+  if (listing.city && acreage < 0.5) score -= 6;
+  return score;
+}
+
 function renderList() {
   el.listingList.innerHTML = "";
   state.filtered.forEach((listing) => {
@@ -193,7 +210,13 @@ function fitMapToResults() {
 }
 
 function applyFilters() {
-  state.filtered = state.listings.filter(listingMatchesFilters);
+  state.filtered = state.listings
+    .filter(listingMatchesFilters)
+    .sort((a, b) => {
+      const scoreDelta = ruralScore(b) - ruralScore(a);
+      if (scoreDelta !== 0) return scoreDelta;
+      return (b.acreage || 0) - (a.acreage || 0);
+    });
   drawListings();
   renderList();
 }

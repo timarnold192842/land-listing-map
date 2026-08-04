@@ -29,6 +29,14 @@
     "maxPages": 170
   },
   {
+    "name": "RuralVacantLand (Live Land Listings)",
+    "type": "ruralvacantland",
+    "enabled": true,
+    "url": "https://ruralvacantland.com/properties/?filter-id=&filter-location=&filter-property-type=&filter-contract-type=46&filter-price-from=&filter-price-to=&filter-area=",
+    "maxPages": 25,
+    "detailConcurrency": 6
+  },
+  {
     "name": "Sample JSON Listings",
     "type": "json",
     "enabled": false,

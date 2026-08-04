@@ -677,6 +677,112 @@ async function loadLandCenturySource(source) {
   return rows;
 }
 
+function extractRuralVacantLandIndexLinks(html) {
+  const urls = (html.match(/https:\/\/ruralvacantland\.com\/properties\/[^"\s#?]+\/?/g) || [])
+    .map((value) => value.trim())
+    .filter((value) => value && !/\/properties\/?$/.test(value) && !/\/feed\/?$/.test(value) && !/\/page\//.test(value));
+  return [...new Set(urls)];
+}
+
+function parseRuralVacantLandDetails(html, url, sourceName) {
+  const title = stripHtml((html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i) || [])[1] || "Untitled land listing");
+  if (shouldSkipTitle(title)) return null;
+
+  const detailBlock = (label) => {
+    const re = new RegExp(`<dt>\\s*${label}\\s*<\\/dt>\\s*<dd>([\\s\\S]*?)<\\/dd>`, "i");
+    return stripHtml((html.match(re) || [])[1] || "");
+  };
+
+  const contract = detailBlock("Contract");
+  if (/sold|pending|under contract/i.test(contract)) return null;
+
+  const location = detailBlock("Location");
+  const locationParts = location
+    .split("/")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const state = normalizeState(locationParts[0] || "");
+  const county = locationParts.length > 1 ? locationParts[1] : "";
+
+  const price = parsePrice(detailBlock("Price"));
+  const acreage = parseAcreage(detailBlock("Area")) || extractAcreageFromText(title, html);
+
+  const lat = toNumber((html.match(/data-latitude="([^"]+)"/i) || [])[1]);
+  const lon = toNumber((html.match(/data-longitude="([^"]+)"/i) || [])[1]);
+  let coords = { lat, lon };
+  if (coords.lat == null || coords.lon == null) {
+    coords = extractCoordinatePair(stripHtml(html));
+  }
+  if (coords.lat == null || coords.lon == null) return null;
+
+  const address = stripHtml((html.match(/<th[^>]*>\s*Address:\s*<\/th>\s*<td[^>]*>([\s\S]*?)<\/td>/i) || [])[1] || "");
+  const city = address.split(",")[0]?.trim() || "";
+
+  const body = stripHtml((html.match(/<div class="post-content"[^>]*>([\s\S]*?)<\/div>/i) || [])[1] || "");
+  const listedAt = String((html.match(/property-detail-created"[^>]*>([^<]+)/i) || [])[1] || "").trim();
+
+  return {
+    id: `${sourceName}:${url}`,
+    source: sourceName,
+    title,
+    url,
+    description: body,
+    city,
+    state,
+    county,
+    listedAt,
+    price,
+    acreage,
+    lat: coords.lat,
+    lon: coords.lon
+  };
+}
+
+async function loadRuralVacantLandSource(source) {
+  const indexUrl = source.url || "https://ruralvacantland.com/properties/?filter-id=&filter-location=&filter-property-type=&filter-contract-type=46&filter-price-from=&filter-price-to=&filter-area=";
+  const maxPages = Number.parseInt(String(source.maxPages ?? 25), 10);
+  const concurrency = Number.parseInt(String(source.detailConcurrency ?? 6), 10);
+
+  const listingUrls = new Set();
+  for (let page = 1; page <= maxPages; page += 1) {
+    const pageUrl = page === 1
+      ? indexUrl
+      : `${indexUrl}${indexUrl.includes("?") ? "&" : "?"}paged=${page}`;
+    const response = await fetch(pageUrl, { headers: REQUEST_HEADERS });
+    if (!response.ok) {
+      if (page > 1) break;
+      throw new Error(`ruralvacantland index request failed: ${response.status} ${response.statusText}`);
+    }
+
+    const html = await response.text();
+    const urls = extractRuralVacantLandIndexLinks(html);
+    if (!urls.length) break;
+    urls.forEach((value) => listingUrls.add(value));
+
+    const hasNext = /next page-numbers/i.test(html) || /class="next/i.test(html);
+    if (!hasNext) break;
+  }
+
+  const allUrls = [...listingUrls];
+  const rows = [];
+  for (let i = 0; i < allUrls.length; i += Math.max(1, concurrency)) {
+    const batch = allUrls.slice(i, i + Math.max(1, concurrency));
+    const parsed = await Promise.all(batch.map(async (url) => {
+      try {
+        const response = await fetch(url, { headers: REQUEST_HEADERS });
+        if (!response.ok) return null;
+        const html = await response.text();
+        return parseRuralVacantLandDetails(html, url, source.name);
+      } catch {
+        return null;
+      }
+    }));
+    parsed.filter(Boolean).forEach((item) => rows.push(item));
+  }
+
+  return rows;
+}
+
 async function loadSourceRows(source) {
   const type = String(source.type || "").toLowerCase();
   if (type === "json") return loadJsonSource(source);
@@ -686,6 +792,7 @@ async function loadSourceRows(source) {
   if (type === "landelevated_home") return loadLandElevatedHomeSource(source);
   if (type === "landmodo") return loadLandmodoSource(source);
   if (type === "landcentury") return loadLandCenturySource(source);
+  if (type === "ruralvacantland") return loadRuralVacantLandSource(source);
   throw new Error(`Unsupported source type: ${source.type}`);
 }
 
@@ -711,7 +818,7 @@ async function main() {
     try {
       const type = String(source.type || "").toLowerCase();
       const rows = await loadSourceRows(source);
-      if (type === "wp_rei_land" || type === "landelevated_home" || type === "landmodo" || type === "landcentury") {
+      if (type === "wp_rei_land" || type === "landelevated_home" || type === "landmodo" || type === "landcentury" || type === "ruralvacantland") {
         rawListings.push(...rows);
       } else {
         rows.forEach((row, index) => {
