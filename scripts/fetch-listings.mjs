@@ -246,6 +246,14 @@ function normalizeState(value) {
   return raw;
 }
 
+function formEncode(payload) {
+  const form = new URLSearchParams();
+  for (const [key, value] of Object.entries(payload)) {
+    form.set(key, String(value ?? ""));
+  }
+  return form;
+}
+
 function statusLooksAvailable(status) {
   const value = String(status || "").toLowerCase();
   if (!value) return true;
@@ -783,6 +791,234 @@ async function loadRuralVacantLandSource(source) {
   return rows;
 }
 
+function normalizeNobleAccount(account) {
+  return String(account || "").replace(/\s+/g, "").trim();
+}
+
+function parseNoblePropClass(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  return raw.padStart(3, "0");
+}
+
+function extractNobleStreet(row, parcelAttrs) {
+  const parts = [
+    String(row?.StreetNumber || "").trim(),
+    String(row?.StreetName || "").trim(),
+    String(row?.StreetType || "").trim(),
+    String(row?.StreetDirection || "").trim()
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (parts) return parts;
+
+  const fallback = String(parcelAttrs?.PROPLO || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return fallback;
+}
+
+function isLikelyNobleLandSale(row) {
+  const propClass = parseNoblePropClass(row?.PropClass);
+  const bldgValue = parsePrice(row?.BldgValue) ?? 0;
+  if (!propClass) return bldgValue === 0;
+  if (propClass.startsWith("1")) return true;
+  return bldgValue === 0;
+}
+
+async function fetchNobleSalesPage(source, start, length, draw) {
+  const endpoint = source.salesEndpoint || "http://70.62.18.11/reaweb/ajax/reDivTwo.php";
+  const saleDateFrom = String(source.saleDateFrom || "2024-01-01").trim();
+  const minAcres = Number.parseFloat(String(source.minAcres ?? 1)) || 1;
+
+  const body = formEncode({
+    draw,
+    start,
+    length,
+    "info[column]": "RESFLDATE",
+    "info[operator]": " >= ",
+    "info[userQuery]": saleDateFrom,
+    "info[userQueryA]": "",
+    "info[subOperator]": " AND ",
+    "info[column1]": "RESFLACRES",
+    "info[operator1]": " >= ",
+    "info[userQuery1]": String(minAcres),
+    "info[userQuery1A]": "",
+    "info[subOperator1]": "",
+    "info[column2]": "",
+    "info[operator2]": "",
+    "info[userQuery2]": "",
+    "info[userQuery2A]": "",
+    "info[subOperator2]": "",
+    "info[column3]": "",
+    "info[operator3]": "",
+    "info[userQuery3]": "",
+    "info[userQuery3A]": ""
+  });
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      ...REQUEST_HEADERS,
+      "content-type": "application/x-www-form-urlencoded; charset=UTF-8"
+    },
+    body
+  });
+
+  if (!response.ok) {
+    throw new Error(`noblecounty_sales request failed: ${response.status} ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+async function fetchNobleParcelLookup(source, accountBatch) {
+  const parcelServiceUrl =
+    source.parcelServiceUrl ||
+    "https://services3.arcgis.com/FZ09CBe0jFkql45S/arcgis/rest/services/Tax_Parcels/FeatureServer/0";
+
+  const safeAccounts = accountBatch
+    .map((value) => normalizeNobleAccount(value))
+    .filter(Boolean)
+    .map((value) => `'${value.replace(/'/g, "''")}'`);
+
+  if (!safeAccounts.length) return new Map();
+
+  const where = `Name IN (${safeAccounts.join(",")})`;
+  const body = formEncode({
+    where,
+    outFields: "Name,PROPLO,ACRES,CLASS,OWNERA",
+    returnGeometry: "false",
+    returnCentroid: "true",
+    outSR: "4326",
+    f: "json"
+  });
+
+  const response = await fetch(`${parcelServiceUrl}/query`, {
+    method: "POST",
+    headers: {
+      ...REQUEST_HEADERS,
+      "content-type": "application/x-www-form-urlencoded; charset=UTF-8"
+    },
+    body
+  });
+  if (!response.ok) {
+    throw new Error(`noblecounty_sales parcel lookup failed: ${response.status} ${response.statusText}`);
+  }
+
+  const payload = await response.json();
+  const lookup = new Map();
+  for (const feature of payload?.features || []) {
+    const attrs = feature?.attributes || {};
+    const centroid = feature?.centroid || {};
+    const account = normalizeNobleAccount(attrs.Name);
+    if (!account) continue;
+    const lon = toNumber(centroid.x);
+    const lat = toNumber(centroid.y);
+    if (lat == null || lon == null) continue;
+    lookup.set(account, {
+      lat,
+      lon,
+      attrs
+    });
+  }
+
+  return lookup;
+}
+
+async function loadNobleCountySalesSource(source) {
+  const pageSize = Math.max(25, Number.parseInt(String(source.pageSize ?? 500), 10) || 500);
+  const maxRows = Math.max(1, Number.parseInt(String(source.maxRows ?? 2000), 10) || 2000);
+  const parcelBatchSize = Math.max(25, Number.parseInt(String(source.parcelBatchSize ?? 100), 10) || 100);
+
+  const saleRows = [];
+  let totalFiltered = null;
+  for (let start = 0, draw = 1; start < maxRows; start += pageSize, draw += 1) {
+    const page = await fetchNobleSalesPage(source, start, pageSize, draw);
+    const rows = Array.isArray(page?.data) ? page.data : [];
+    if (totalFiltered == null) {
+      totalFiltered = Number.parseInt(String(page?.recordsFiltered ?? rows.length), 10) || rows.length;
+    }
+    if (!rows.length) break;
+    saleRows.push(...rows);
+    if (saleRows.length >= maxRows) break;
+    if (start + rows.length >= totalFiltered) break;
+  }
+
+  const dedupedSales = new Map();
+  for (const row of saleRows) {
+    const account = normalizeNobleAccount(row?.Account);
+    const saleDate = String(row?.SaleDate || "").trim();
+    const saleNumber = String(row?.SaleNumber || "").trim();
+    if (!account || !saleDate) continue;
+    const key = `${account}|${saleDate}|${saleNumber}`;
+    if (!dedupedSales.has(key)) {
+      dedupedSales.set(key, row);
+    }
+  }
+
+  const accountSet = new Set();
+  for (const row of dedupedSales.values()) {
+    const account = normalizeNobleAccount(row?.Account);
+    if (account) accountSet.add(account);
+  }
+
+  const accounts = [...accountSet];
+  const parcelLookup = new Map();
+  for (let i = 0; i < accounts.length; i += parcelBatchSize) {
+    const batch = accounts.slice(i, i + parcelBatchSize);
+    const chunkLookup = await fetchNobleParcelLookup(source, batch);
+    chunkLookup.forEach((value, key) => parcelLookup.set(key, value));
+  }
+
+  const out = [];
+  for (const row of dedupedSales.values()) {
+    if (!isLikelyNobleLandSale(row)) continue;
+
+    const account = normalizeNobleAccount(row?.Account);
+    const parcel = parcelLookup.get(account);
+    if (!parcel) continue;
+
+    const saleDate = String(row?.SaleDate || "").trim();
+    const saleNumber = String(row?.SaleNumber || "").trim();
+    const acres = parseAcreage(row?.Acres) || parseAcreage(parcel?.attrs?.ACRES);
+    if (acres == null || acres < (Number.parseFloat(String(source.minAcres ?? 1)) || 1)) continue;
+
+    const street = extractNobleStreet(row, parcel?.attrs);
+    const propClass = parseNoblePropClass(row?.PropClass);
+    const salePrice = parsePrice(row?.SalePrice);
+    const owner = String(parcel?.attrs?.OWNERA || "").replace(/\s+/g, " ").trim();
+
+    out.push({
+      id: `${source.name}:${account}:${saleDate}:${saleNumber}`,
+      source: source.name,
+      title: `${acres.toFixed(acres >= 10 ? 1 : 2).replace(/\.0$/, "")} acres in Noble County, OH`,
+      url: `http://70.62.18.11/reaweb/re-chg.php?account=${encodeURIComponent(account)}#sale-${saleDate}-${saleNumber}`,
+      description: [
+        street ? `Parcel location: ${street}` : "",
+        owner ? `Owner: ${owner}` : "",
+        propClass ? `Property class: ${propClass}` : "",
+        "Recorded county sale record (not an active MLS-style listing)."
+      ]
+        .filter(Boolean)
+        .join(" | "),
+      city: "",
+      state: "OH",
+      county: "Noble",
+      listedAt: saleDate,
+      price: salePrice,
+      acreage: acres,
+      lat: parcel.lat,
+      lon: parcel.lon
+    });
+  }
+
+  return out;
+}
+
 async function loadSourceRows(source) {
   const type = String(source.type || "").toLowerCase();
   if (type === "json") return loadJsonSource(source);
@@ -793,6 +1029,7 @@ async function loadSourceRows(source) {
   if (type === "landmodo") return loadLandmodoSource(source);
   if (type === "landcentury") return loadLandCenturySource(source);
   if (type === "ruralvacantland") return loadRuralVacantLandSource(source);
+  if (type === "noblecounty_sales") return loadNobleCountySalesSource(source);
   throw new Error(`Unsupported source type: ${source.type}`);
 }
 
@@ -818,7 +1055,14 @@ async function main() {
     try {
       const type = String(source.type || "").toLowerCase();
       const rows = await loadSourceRows(source);
-      if (type === "wp_rei_land" || type === "landelevated_home" || type === "landmodo" || type === "landcentury" || type === "ruralvacantland") {
+      if (
+        type === "wp_rei_land" ||
+        type === "landelevated_home" ||
+        type === "landmodo" ||
+        type === "landcentury" ||
+        type === "ruralvacantland" ||
+        type === "noblecounty_sales"
+      ) {
         rawListings.push(...rows);
       } else {
         rows.forEach((row, index) => {

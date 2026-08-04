@@ -37,6 +37,18 @@
     "detailConcurrency": 6
   },
   {
+    "name": "Noble County OH Sales (Recent Land Transfers)",
+    "type": "noblecounty_sales",
+    "enabled": true,
+    "salesEndpoint": "http://70.62.18.11/reaweb/ajax/reDivTwo.php",
+    "parcelServiceUrl": "https://services3.arcgis.com/FZ09CBe0jFkql45S/arcgis/rest/services/Tax_Parcels/FeatureServer/0",
+    "saleDateFrom": "2024-01-01",
+    "minAcres": 1,
+    "pageSize": 500,
+    "maxRows": 2000,
+    "parcelBatchSize": 100
+  },
+  {
     "name": "Sample JSON Listings",
     "type": "json",
     "enabled": false,
